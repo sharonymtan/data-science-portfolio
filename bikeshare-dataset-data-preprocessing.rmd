@@ -1,0 +1,334 @@
+---
+title: 'Bikeshare dataset data preprocessing'
+author: "Sharon Tan"
+subtitle:
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+---
+
+
+
+## Required packages 
+
+
+```{r, message =FALSE, warning = FALSE}
+library(readr)
+library(xlsx)
+library(readxl)
+library(foreign)
+library(ggplot2)
+library(rvest)
+library(dplyr)
+library(tidyr)
+library(outliers)
+library(MVN)
+library(mlr)
+library(car)
+library(tidyverse)
+```
+
+
+## Data 
+
+In this assignment, I will be using an open data set provided by Capital Bikeshare that can be sourced from [Kaggle](https://www.kaggle.com/marklvl/bike-sharing-dataset?select=hour.csv). This data set contains the hourly and daily count of rental bikes between 2011 and 2012 in the Capital Bikeshare system in Washington, DC with the corresponding weather and seasonal information. 
+
+The variables given in the data set are:
+
+- instant: record index
+- dteday : date
+- season : season (1:spring, 2:summer, 3:fall, 4:winter)
+- yr : year (0: 2011, 1:2012)
+- mnth : month ( 1 to 12)
+- hr : hour (0 to 23)
+- holiday : weather day is holiday or not (extracted from http://dchr.dc.gov/page/holiday-schedule)
+- weekday : day of the week
+- workingday : if day is neither weekend nor holiday is 1, otherwise is 0.
++ weathersit : 
+		- 1: Clear, Few clouds, Partly cloudy, Partly cloudy
+		- 2: Mist + Cloudy, Mist + Broken clouds, Mist + Few clouds, Mist
+		- 3: Light Snow, Light Rain + Thunderstorm + Scattered clouds, Light Rain + Scattered clouds
+		- 4: Heavy Rain + Ice Pallets + Thunderstorm + Mist, Snow + Fog
+- temp : Normalized temperature in Celsius. The values are divided to 41 (max)
+- atemp: Normalized feeling temperature in Celsius. The values are divided to 50 (max)
+- hum: Normalized humidity. The values are divided to 100 (max)
+- windspeed: Normalized wind speed. The values are divided to 67 (max)
+- casual: count of casual users
+- registered: count of registered users
+- cnt: count of total rental bikes including both casual and registered
+
+
+First I read both csv files into R:
+```{r}
+#reading csv 
+day <- read.csv(file='day.csv',header = TRUE)
+hour <- read.csv(file = 'hour.csv', header = TRUE)
+head(day)
+head(hour)
+str(day)
+str(hour)
+```
+The outputs above show that both data sets have identical columns except that in the 'day' csv the column 'hr' is not present.
+
+Before merging both data set, I remove the 'hr' column from the 'hour' data set:
+```{r}
+subset_hour <- subset(hour,select = -c(hr))
+head(subset_hour)
+str(subset_hour)
+```
+
+Then I merge them using a right join merge from the dbplyr package, that keeps all the observation from the 'hour' data set and all the intersect observations betreen the 'day' and 'hour' data set:
+```{r}
+# merge both data set using right_join to return all rows from 'subset_hour', and all columns from both data set
+df_merged<-right_join(day,subset_hour)
+head(df_merged,5)
+str(df_merged)
+```
+To make the data frame more manageable for the purpose of this assignment, I remove three of the columns that I deem not important. They are the 'casual' and 'registered' riders columns and the 'atemp' column. The reason for removing 'casual' and 'registered' columns is because there is already a total count ('cnt') column that captured the sum of casual and registered users. And since there is already a 'temp' column that captures the normalised temperature in Celsius, to which I think is sufficient enough to make meaningful analysis that the 'atemp' column, which captures normalised feeling temperature in Celsius is not necessary.
+```{r}
+df_merged <-subset(df_merged,select = -c(atemp,casual,registered))
+head(df_merged,5)
+```
+
+
+## Understand
+
+To understand the data frame that I'm working with, i use the following codes to inspect:
+```{r}
+str(df_merged)
+class(df_merged)
+dim(df_merged)
+```
+Above show us that there are 17,379 rows and 13 columns in the current data frame. There are multiple data types: integers, character and numeric. 
+
+To make some of the column names to be more descriptive, I rename them as follows by using the rename():
+```{r}
+df_new <- df_merged %>%
+          rename(index = 'instant',
+                 date = 'dteday',
+                 year = 'yr',
+                 month = 'mnth',
+                 weather_type = 'weathersit',
+                 temperature = 'temp',
+                 humidity = 'hum',
+                 count = 'cnt')
+          
+head(df_new,5)
+```
+The data frame's columns have been renamed.
+
+As shown above, the data type for the 'date' column is currently a character, so I change it to a date type:
+```{r}
+df_new$date <-as.Date(df_new$date)
+str(df_new)
+head(df_new,3)
+```
+
+To check if there are any levels being assigned to each variables, I use the lapply function:
+```{r}
+lapply(df_new,levels)
+```
+Above shows that none of the variables have levels at this point, however some of the categorical variables above have intrinsic orders to them and should be converted into factor variables, they are: season, year, month, and weekday. To convert them, I use the following codes:
+
+```{r}
+df_new$season <- as.factor(df_new$season)
+df_new$year <- as.factor(df_new$year)
+
+unique(df_new$month) # to check for what levels to assign to month
+df_new$month <- factor(df_new$month,ordered = TRUE, levels = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12))
+
+unique(df_new$weekday) # to check for what levels to assign to weekday
+df_new$weekday <- factor(df_new$weekday, ordered = TRUE, levels =c(0,1,2,3,4,5,6))
+
+levels(df_new$season)
+levels(df_new$year)
+levels(df_new$month)
+levels(df_new$weekday)
+
+
+head(df_new,5)
+glimpse(df_new)
+```
+After the conversion, the data frame now has 4 factor variables, 4 integers, 1 date, and 3 double-precision floating-point format variables. 
+
+
+##	Tidy & Manipulate Data I 
+
+To check if the data frame conforms to the Tidy Data Principles set out by Wickham (2014), which are:
+
+- Each variable forms a column
+- Each observation forms a row
+- Each type of observational unit forms a table 
+
+
+1. Each variable forms a column
+- We can see from above str() output that all the variables, 13 of them are in columns, from 'index' to 'count'
+- So this rule is satisfied
+
+2. Each observation forms a row
+- We can see that this rule is also satisfied based on the output that states there are 17,379 observations and no variables are found in rows
+- This rule is also satisfied
+
+3. Each type of observational unit forms a table
+- When merging both data set, I use the right join function that returns all the values from 'hour' data set and only the ones that matched both in 'day' and 'hour' data set, this step ensures that only hourly data has been captured
+- Hence, this rule is also satisfied
+
+```{r}
+str(df_new)
+```
+
+##	Tidy & Manipulate Data II 
+
+To add to the data frame, I create a new variable that returns the deviation of each temperature Celsius from its mean, 
+```{r}
+mean <-mean(df_new$temperature)
+df_new$temp_dev <- round(df_new$temperature - mean, digit = 2)
+head(df_new)
+```
+From the new column, it shows how much colder or hotter than average at a time when each bike was rented and this offers a little bit more insight to what we can understand from the data.
+
+##	Scan I 
+
+To check for any missing values in the data frame, I use the following code:
+
+```{r}
+sapply(df_new,function(x)sum(is.na (df_new)))
+sum(is.na(df_new))
+```
+The reason for using sapply() code is so that not only I can identify which column contains missing values but it can also return the no. of missing values that are present by each column. I also use the sum(is.na()) to return any count of missing values just to make sure. Both codes return 0, hence there are no missing values in this data frame.
+
+
+##	Scan II
+
+To look for outliers in the numeric variables, I first confirm the correct numeric variables that should be included in the scanning, I first generate a list of numeric variables:
+```{r}
+num <- df_new %>% dplyr::select(where(is.numeric))
+head(num)
+```
+Above shows 9 numeric variables, but the only appropriate ones are temperature, humidity, windspeed and count. This is because there are mathematical meaning in these variables; the difference between each number is evenly distributed. 
+
+I decide to exclude temp_dev from this step as it was added to the data frame later on and is not part of the original data set, and since 'temp' will be included in the scan it will be sufficient enough.
+
+The other numeric variables are excluded because although they are numbers, they present no mathematical meaning and are categorical. For example, whether_type is a numeric number ranging from 1 to 4 indicating weather condition in each instance and offers no mathematical insights, hence should not be included.
+
+Step 1 - Create a subset of numeric variables
+```{r}
+df_newsub <- subset(df_new,select = c(temperature,humidity,windspeed,count))
+df_less = df_newsub[1:5000,] # since the appropriate sample size is between 3 - 5000 subseting data to only include the first 5,000 observations
+str(df_less)
+head(df_less,5)
+```
+Step 2 - Remove any missing values, the above sapply() and sum(is.na()) functions confirmed that there are no missing values so this step is not required.
+
+Step 3 - Detect multivariate outliers using MVN
+
+Since we are scanning for outliers in four variables, it's more appropriate to scan for multivariate outlier and not univariate outlier:
+
+```{r}
+results <- df_less %>% 
+  MVN::mvn(multivariateOutlierMethod = "quan", 
+           showOutliers = TRUE)
+# here returns the outliers stats including the Mahalanobis distance of each outlier by observation numbers
+
+
+df_outliers <- df_less[c(as.numeric(results$multivariateOutliers[["Observation"]])), ] # returns all the outliers after converting the observation numbers from character to numeric 
+head(df_outliers)
+dim(df_outliers) # to show no. outlier observations in rows and columns
+
+
+df_clean <- df_less[-c(as.numeric(results$multivariateOutliers[["Observation"]])),] # to remove outliers
+df_clean$temperature <- as.numeric(df_clean$temperature)
+df_clean$humidity <- as.numeric(df_clean$humidity)
+df_clean$windspeed <- as.numeric(df_clean$windspeed)
+df_clean$count <- as.numeric(df_clean$count)
+head(df_clean)
+dim(df_clean)
+
+```
+Above shows that there are 677 outliers found in the 4 variables, and after removing them, the data set now remains 4,323 observations. 
+
+Outliers represent unusual values in the data set, they paint a bigger picture of what occurs in reality. However, for the purpose of this assignment, and in favor of increasing statistical significance, I decide to remove the outliers here. Further investigation can be done to assess the causes of these outliers, there may simply be formatting errors which should be removed. Also note that the chosen sample size are picked from the first 5,000 rows, which is between January and August in 2011, the chosen sample may simply happen to capture more extreme weather than what a whole year normally have on average. Only after the cause is understood correctly,will I be able to make an informed decision as to whether they should be kept.
+
+##	Transform 
+
+To check the skew-ness of each variable, I use the hist() function:
+```{r}
+hist(df_clean$temperature)
+hist(df_clean$humidity)
+hist(df_clean$windspeed)
+hist(df_clean$count)
+
+```
+From above it shows that the temperature is pretty close to a normal distribution, hence no transformation needed. However, humidity skews a little to the left while the others skew to the right quite significantly.
+
+I begin by transforming the Humidity data:
+```{r}
+
+# before transformation
+hist(df_clean$humidity, breaks = 50,
+      main = "Histogram of Humidity", 
+      xlab = "Humidity")
+
+# solution power transformation
+sqr_humidity_2 <- df_clean$humidity^1.5
+
+hist(sqr_humidity_2, breaks = 50,
+     main = "Histogram of the Power Transformed Humidity", 
+     xlab = "Power Transformed Humidity")
+
+```
+The power transformation shifted the graph to the left, it's now a little closer to a normal distribution.
+
+Next, I transform the Windspeed data:
+```{r}
+
+# before transformation
+hist(df_clean$windspeed,
+     main = 'Histogram of Windspeed',
+     xlab = 'Windspeed')
+
+
+# solution log transformation
+log_windspeed <- log(df_clean$windspeed)
+
+hist(log_windspeed,
+     main = "Histogram of Log Transformed Windspeed", 
+     xlab = "Log Transformed of Windspeed")
+
+```
+The original Windspeed histogram shows that the graph is right skewed, so I apply the log 10 transformation and now the histogram looks a little closer to a normal distribution. 
+
+
+Lastly, I transform the Count data below:
+```{r}
+
+# before transformation
+hist(df_clean$count, breaks= 50,
+     main = "Histogram of Count", 
+      xlab = "Count")
+
+
+# solution 1 Log 10 transformation
+log_count <- log10(df_clean$count)
+
+hist(log_count, breaks = 50,
+     main = "Histogram of Log Transformed Count", 
+      xlab = "Log Transformed Count")
+
+```
+Here the count histogram skews significantly to the right, this makes the data points in the right quite difficult to see, to better see the other variables on the right, I apply the log10 transformation. The new histogram is able to show more clearly the number of riders and their frequencies.
+
+
+End of assignment.
+
+
+## Reference List
+
+Kaggle 2019, Bike Sharing in Washington D.C. Dataset, viewed 20 February 2021, <https://www.kaggle.com/marklvl/bike-sharing-dataset>
+
+Wickham, H., 2014. Tidy Data. Journal of Statistical Software, 59(10)., viewed 20 February 2021, <https://vita.had.co.nz/papers/tidy-data.pdf>
+
+
+<br>
+<br>
