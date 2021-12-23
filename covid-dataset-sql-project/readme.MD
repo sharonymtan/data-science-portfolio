@@ -2,7 +2,7 @@
 
 Data collected from the [Our World in Data](https://ourworldindata.org/covid-deaths) on 23 Dec 2021.
 
-4 SQL queries that created the tiles on Tableau
+4 SQL queries that created the tiles on Tableau:
 ```ruby
 -- 1. 
 
@@ -53,4 +53,4 @@ order by PercentPopulationInfected desc
 Tableau Visualisation:
 ![Tableau dashboard](/assets/images/covid-tableau-dashboard.png)
 
-[Link to tableau public](https://public.tableau.com/app/profile/sharon3988/viz/CovidDashboard_16402299396360/Dashboard1?publish=yes)
+[[Click here to access tableau public]](https://public.tableau.com/app/profile/sharon3988/viz/CovidDashboard_16402299396360/Dashboard1?publish=yes)
