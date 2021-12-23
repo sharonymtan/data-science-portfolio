@@ -3,4 +3,4 @@
 Data collected from the [Our Wolrd in Data](https://ourworldindata.org/covid-deaths)
 
 Tableau Visualisation:
-[Tableau dashboard](/assets/images/covid-tableau-dashboard.png)
+![Tableau dashboard](/assets/images/covid-tableau-dashboard.png)
